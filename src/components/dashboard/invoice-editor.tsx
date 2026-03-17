@@ -90,10 +90,20 @@ export function InvoiceEditor({ invoice, onClose, onSave }: InvoiceEditorProps) 
     setIsSaving(true);
     try {
       const updates = { ...formData };
+      
       // If the button is "Store Verified Record", force status to confirmed
       if (isSupervisor || formData.status === 'pending') {
         updates.status = 'confirmed';
+        
+        // If it was a failed AI extraction, clear the error flag now that it's manually fixed
+        if (updates.raw_data?.error) {
+          updates.raw_data = {
+            ...updates.raw_data,
+            error: undefined
+          };
+        }
       }
+      
       await onSave(invoice.id, updates);
       onClose();
     } catch (e) {
@@ -109,7 +119,7 @@ export function InvoiceEditor({ invoice, onClose, onSave }: InvoiceEditorProps) 
       <div className="w-full max-w-4xl bg-white h-full shadow-2xl flex flex-col md:flex-row animate-in slide-in-from-right-8 duration-300">
         
         {/* Document Preview Panel (Left Side) */}
-        <div className="md:w-1/2 bg-slate-50 border-r border-slate-200 flex flex-col h-full relative">
+        <div className="md:w-[60%] bg-slate-50 border-r border-slate-200 flex flex-col h-full relative">
           <div className="p-4 border-b border-slate-200 bg-white shadow-sm z-10 flex items-center justify-between">
             <h3 className="font-semibold text-slate-800 flex items-center gap-2">
               <svg className="w-5 h-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg>
@@ -131,18 +141,77 @@ export function InvoiceEditor({ invoice, onClose, onSave }: InvoiceEditorProps) 
           </div>
           <div className="flex-1 p-5 overflow-hidden relative group">
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 pointer-events-none"></div>
-            <div className="relative w-full h-full">
-              <iframe 
-                src={`${formData.file_url || invoice.file_url}#toolbar=0`} 
-                className="w-full h-full rounded-xl border border-slate-200 bg-white shadow-[0_4px_20px_-10px_rgba(0,0,0,0.1)] transition-all relative z-10"
-                title="Invoice Preview"
-              />
+            <div className="relative w-full h-full p-2 group/preview">
+              {(() => {
+                const url = formData.file_url || invoice.file_url;
+                const isImage = url && (
+                  url.toLowerCase().includes('.jpg') || 
+                  url.toLowerCase().includes('.jpeg') || 
+                  url.toLowerCase().includes('.png') || 
+                  url.toLowerCase().includes('.webp') ||
+                  url.toLowerCase().includes('image/')
+                );
+                
+                // eslint-disable-next-line react-hooks/rules-of-hooks
+                const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+                // eslint-disable-next-line react-hooks/rules-of-hooks
+                const [showMagnifier, setShowMagnifier] = useState(false);
+
+                const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+                  const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
+                  const x = ((e.pageX - left - window.scrollX) / width) * 100;
+                  const y = ((e.pageY - top - window.scrollY) / height) * 100;
+                  setMousePos({ x, y });
+                };
+
+                if (isImage) {
+                  return (
+                    <div 
+                      className="relative w-full h-full cursor-crosshair overflow-hidden rounded-xl border border-slate-200 bg-white"
+                      onMouseEnter={() => setShowMagnifier(true)}
+                      onMouseLeave={() => setShowMagnifier(false)}
+                      onMouseMove={handleMouseMove}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img 
+                        src={url} 
+                        className="w-full h-full object-contain transition-all relative z-10"
+                        alt="Invoice Preview"
+                      />
+                      
+                      {/* Magnifying Glass Overlay */}
+                      {showMagnifier && (
+                        <div 
+                          className="absolute pointer-events-none z-30 w-48 h-48 rounded-full border-4 border-white shadow-[0_0_20px_rgba(0,0,0,0.3)] bg-no-repeat overflow-hidden"
+                          style={{
+                            left: `${mousePos.x}%`,
+                            top: `${mousePos.y}%`,
+                            transform: 'translate(-50%, -50%)',
+                            backgroundImage: `url(${url})`,
+                            backgroundSize: '400%', // 4x zoom
+                            backgroundPosition: `${mousePos.x}% ${mousePos.y}%`,
+                            display: 'block'
+                          }}
+                        />
+                      )}
+                    </div>
+                  );
+                }
+                
+                return (
+                  <iframe 
+                    src={`${url}#toolbar=0`} 
+                    className="w-full h-full rounded-xl border border-slate-200 bg-white shadow-[0_4px_20px_-10px_rgba(0,0,0,0.1)] transition-all relative z-10"
+                    title="Invoice Preview"
+                  />
+                );
+              })()}
               <button 
                 onClick={() => setIsEnlarged(true)}
-                className="absolute top-4 right-4 z-20 p-2 bg-white/90 hover:bg-white text-slate-700 rounded-lg shadow-lg border border-slate-200 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 text-xs font-bold"
+                className="absolute top-6 right-6 z-20 p-2.5 bg-white/95 hover:bg-white text-slate-700 rounded-xl shadow-xl border border-slate-200 opacity-0 group-hover/preview:opacity-100 transition-all flex items-center gap-2 text-[11px] font-bold"
               >
                 <Maximize2 className="w-4 h-4" />
-                Enlarge
+                Fullscreen
               </button>
             </div>
           </div>
@@ -181,7 +250,7 @@ export function InvoiceEditor({ invoice, onClose, onSave }: InvoiceEditorProps) 
         )}
 
         {/* Edit Form Panel (Right Side) */}
-        <div className="md:w-1/2 flex flex-col h-full bg-white">
+        <div className="md:w-[40%] flex flex-col h-full bg-white">
           <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-white shadow-sm z-10">
             <div className="flex flex-col">
               <h3 className="font-bold text-lg text-slate-900 tracking-tight">
@@ -293,7 +362,20 @@ export function InvoiceEditor({ invoice, onClose, onSave }: InvoiceEditorProps) 
                 </div>
                 <div className="flex gap-2 flex-col">
                   <input type="text" name="tax_id" value={formData.tax_id || ''} onChange={handleChange} className={`w-full h-11 px-4 border bg-slate-50 hover:bg-white rounded-lg shadow-sm focus:ring-1 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-slate-900 font-medium font-mono ${getFieldBorder('tax_id')}`} />
-                  {boundingBoxes.tax_id && <FieldSnapshot imageUrl={formData.file_url || invoice.file_url} boundingBox={boundingBoxes.tax_id} className="w-full !h-8" />}
+                </div>
+              </div>
+
+              <div className="col-span-1">
+                <div className="flex justify-between items-end mb-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Branch</label>
+                  {fieldConfidence.branch && (
+                    <span className={`text-[10px] font-bold ${getConfidenceColor(fieldConfidence.branch)}`}>
+                      {fieldConfidence.branch}%
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2 flex-col">
+                  <input type="text" name="branch" value={formData.branch || ''} onChange={handleChange} className={`w-full h-11 px-4 border bg-slate-50 hover:bg-white rounded-lg shadow-sm focus:ring-1 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all text-slate-900 font-medium ${getFieldBorder('branch')}`} />
                 </div>
               </div>
 
@@ -347,19 +429,21 @@ export function InvoiceEditor({ invoice, onClose, onSave }: InvoiceEditorProps) 
               </div>
             </div>
             
-            {(overallConfidence < 70 || isDuplicate) && (
-              <div className={`mt-4 p-4 rounded-xl border flex flex-col gap-3 ${isDuplicate ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+            {(overallConfidence < 70 || isDuplicate || rawData.error) && (
+              <div className={`mt-4 p-4 rounded-xl border flex flex-col gap-3 ${rawData.error || isDuplicate ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
                 <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded-lg ${isDuplicate ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>
-                    <AlertCircle className="w-5 h-5" />
+                  <div className={`p-2 rounded-lg ${rawData.error || isDuplicate ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>
+                    <AlertTriangle className="w-5 h-5" />
                   </div>
-                  <div>
-                    <h5 className={`text-sm font-bold ${isDuplicate ? 'text-red-900' : 'text-amber-900'}`}>
-                      {isDuplicate ? 'Action Required: Potential Duplicate' : 'Validation Required'}
+                  <div className="flex-1">
+                    <h5 className={`text-sm font-bold ${rawData.error || isDuplicate ? 'text-red-900' : 'text-amber-900'}`}>
+                      {rawData.error ? 'AI Extraction Failed' : isDuplicate ? 'Action Required: Potential Duplicate' : 'Validation Required'}
                     </h5>
-                    <p className={`text-xs ${isDuplicate ? 'text-red-700' : 'text-amber-700'} mt-1`}>
-                      {isDuplicate 
-                        ? 'This invoice appears to already exist in the database. Please verify if this is a repeat upload before saving.' 
+                    <p className={`text-xs ${rawData.error || isDuplicate ? 'text-red-700' : 'text-amber-700'} mt-1 font-medium`}>
+                      {rawData.error 
+                        ? `Error: ${rawData.error}. Please examine the document and enter the fields manually.` 
+                        : isDuplicate 
+                        ? 'This invoice appears to already exist in the database. Please verify before saving.' 
                         : 'AI confidence score is very low (below 70%). You must manually verify all fields before saving.'}
                     </p>
                   </div>

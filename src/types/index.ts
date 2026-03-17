@@ -1,4 +1,4 @@
-export type InvoiceStatus = 'pending' | 'confirmed';
+export type InvoiceStatus = 'queued' | 'processing' | 'pending' | 'confirmed';
 export type InvoiceType = 'purchase' | 'sale';
 
 export interface Client {
@@ -15,6 +15,7 @@ export interface Invoice {
   file_url: string;
   vendor_name: string;
   tax_id: string;
+  branch: string; // Branch info
   invoice_no: string;
   invoice_date: string; // YYYY-MM-DD
   total_amount: number;

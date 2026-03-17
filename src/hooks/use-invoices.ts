@@ -21,7 +21,15 @@ export function useInvoices(clientId?: string, startDate?: string, endDate?: str
   
   const url = clientId ? `/api/invoices?${queryParams.toString()}` : null;
 
-  const { data, error, isLoading, mutate } = useSWR<Invoice[]>(url, fetcher);
+  const { data, error, isLoading, mutate } = useSWR<Invoice[]>(url, fetcher, {
+    // If we have invoices that are currently in 'queued' or 'processing' status, 
+    // poll the server every 3 seconds to get the update.
+    refreshInterval: (data) => {
+      const hasActiveTasks = data?.some(inv => inv.status === 'queued' || inv.status === 'processing');
+      return hasActiveTasks ? 3000 : 0;
+    },
+    revalidateOnFocus: true
+  });
 
   const updateInvoice = async (id: string, updates: Partial<Invoice>) => {
     // Optimistic update of the local cache

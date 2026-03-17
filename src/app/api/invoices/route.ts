@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/services/supabase-client';
 // NOTE: In a real Vercel environment, we would trigger a background function (like Inngest) here.
 // For this Next.js API, we'll demonstrate the process synchronously, or fire-and-forget.
 // We also import your written gemini parser here.
-import { extractInvoiceData } from '../../../../services/gemini'; 
+import { processNextInQueue } from '@/services/task-queue'; 
 
 export async function POST(request: Request) {
   try {
@@ -58,14 +58,14 @@ export async function POST(request: Request) {
     
     const fileUrl = signedUrlData.signedUrl;
 
-    // 2. Create the Database Record immediately with status 'pending'
-    console.log('Creating database record...');
+    // 2. Create the Database Record immediately with status 'queued'
+    console.log('Creating database record as queued...');
     const { data: dbRecord, error: dbError } = await supabaseAdmin
       .from('tax_invoices')
       .insert([
         { 
           file_url: filePath, 
-          status: 'pending',
+          status: 'queued', // Important for the sequential queue
           type: 'purchase',
           client_id: clientId
         }
@@ -77,124 +77,9 @@ export async function POST(request: Request) {
       throw new Error(`Database insert failed: ${dbError.message}`);
     }
 
-    // 3. BACKGROUND PROCESS: (Fire and forget)
-    // We do NOT await this, so the API returns immediately to the user
-    (async () => {
-      try {
-        console.log(`[Background] Starting Gemini extraction for ${dbRecord.id}...`);
-        const geminiResult = await extractInvoiceData(fileUrl, {
-          name: client.name,
-          taxId: client.tax_id
-        });
-        
-        if (!geminiResult.success || !geminiResult.data) {
-          throw new Error(`Gemini extraction failed: ${geminiResult.error}`);
-        }
-
-        // Ensure we always work with an array
-        let extractedArray = [];
-        if (Array.isArray(geminiResult.data)) {
-          extractedArray = geminiResult.data;
-        } else if (geminiResult.data && typeof geminiResult.data === 'object') {
-          extractedArray = [geminiResult.data];
-        }
-
-        if (extractedArray.length === 0) {
-          throw new Error('AI could not find any valid invoices in this document.');
-        }
-
-        console.log(`[Background] Extracted ${extractedArray.length} invoices from ${dbRecord.id}`);
-
-        // Process the first invoice by updating the existing placeholder row
-        const firstExtracted = extractedArray[0];
-        const firstConfidence = firstExtracted.confidence_score_percent || 0;
-
-        const { error: duplicateError1 } = await supabaseAdmin
-            .from('tax_invoices')
-            .select('id')
-            .eq('client_id', clientId)
-            .eq('vendor_name', firstExtracted.vendor_name)
-            .eq('invoice_no', firstExtracted.invoice_no)
-            .eq('invoice_date', firstExtracted.invoice_date)
-            .eq('status', 'confirmed')
-            .neq('id', dbRecord.id)
-            .limit(1);
-
-        const { error: updateError } = await supabaseAdmin
-            .from('tax_invoices')
-            .update({
-                status: 'pending',
-                vendor_name: firstExtracted.vendor_name,
-                tax_id: firstExtracted.tax_id,
-                invoice_no: firstExtracted.invoice_no,
-                invoice_date: firstExtracted.invoice_date,
-                total_amount: firstExtracted.total_amount,
-                vat_amount: firstExtracted.vat_amount,
-                net_amount: firstExtracted.net_amount,
-                type: firstExtracted.invoice_type || 'purchase',
-                raw_data: {
-                    gemini_raw: JSON.parse(geminiResult.raw_response || '{}'),
-                    confidence_score: firstConfidence,
-                    field_confidence: firstExtracted.field_confidence,
-                    bounding_boxes: firstExtracted.bounding_boxes,
-                    is_duplicate: false
-                }
-            })
-            .eq('id', dbRecord.id);
-
-        if (updateError) {
-          console.error(`[Background] Update failed for ${dbRecord.id}:`, updateError);
-        }
-
-        // If there are more invoices, insert them as new rows referencing the same file
-        if (extractedArray.length > 1) {
-          const additionalInvoices = extractedArray.slice(1).map(extracted => ({
-            client_id: clientId,
-            file_url: fileUrl, // Point to the exact same file
-            file_name: file.name,
-            file_size: file.size,
-            status: 'pending',
-            vendor_name: extracted.vendor_name,
-            tax_id: extracted.tax_id,
-            invoice_no: extracted.invoice_no,
-            invoice_date: extracted.invoice_date,
-            total_amount: extracted.total_amount,
-            vat_amount: extracted.vat_amount,
-            net_amount: extracted.net_amount,
-            type: extracted.invoice_type || 'purchase',
-            raw_data: {
-              gemini_raw: JSON.parse(geminiResult.raw_response || '{}'),
-              confidence_score: extracted.confidence_score_percent || 0,
-              field_confidence: extracted.field_confidence,
-              bounding_boxes: extracted.bounding_boxes,
-              is_duplicate: false,
-              is_child_record: true // Flag to indicate it shares a file with another row
-            }
-          }));
-
-          const { error: insertError } = await supabaseAdmin
-            .from('tax_invoices')
-            .insert(additionalInvoices);
-
-          if (insertError) {
-             console.error(`[Background] Failed to insert additional invoices for ${dbRecord.id}:`, insertError);
-          } else {
-             console.log(`[Background] Inserted ${additionalInvoices.length} additional invoices`);
-          }
-        }
-
-      } catch (bgError: any) {
-        console.error(`[Background] Fatal error processing ${dbRecord.id}:`, bgError);
-        // Mark as failed so UI can show error state
-        await supabaseAdmin
-            .from('tax_invoices')
-            .update({ 
-                status: 'pending', // Keep as pending but add error info in raw_data 
-                raw_data: { error: bgError.message || 'Unknown background error' } 
-            })
-            .eq('id', dbRecord.id);
-      }
-    })();
+    // 3. DONE: We just return success. 
+    // The background processing will be triggered when the user visits the Dashboard (via GET api).
+    // This allows the user to see the "Queued" items first.
 
     // Return 202 Accepted immediately
     return NextResponse.json(
@@ -218,6 +103,9 @@ export async function POST(request: Request) {
 // GET route to fetch invoices for the dashboard
 export async function GET(request: Request) {
     try {
+        // Ping the worker in case some jobs are stuck in 'queued'
+        // across server restarts.
+        processNextInQueue().catch(() => {});
         const { searchParams } = new URL(request.url);
         const start = searchParams.get('startDate');
         const end = searchParams.get('endDate');
@@ -233,8 +121,9 @@ export async function GET(request: Request) {
         }
 
         if (start && end) {
-            // Include invoices within date range OR any invoice that is still pending/needs review
-            query = query.or(`and(invoice_date.gte.${start},invoice_date.lte.${end}),status.eq.pending`);
+            // Show invoices within date range OR any invoice that is still in the workflow (queued, processing, pending review, or failed)
+            // This ensures new uploads show up immediately on the dashboard.
+            query = query.or(`and(invoice_date.gte.${start},invoice_date.lte.${end}),status.in.(pending,queued,processing,failed)`);
         }
 
         const { data, error } = await query;

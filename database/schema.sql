@@ -1,5 +1,5 @@
 -- Create Enums
-CREATE TYPE invoice_status AS ENUM ('pending', 'confirmed');
+CREATE TYPE invoice_status AS ENUM ('queued', 'processing', 'pending', 'confirmed');
 CREATE TYPE invoice_type AS ENUM ('purchase', 'sale');
 
 -- Create the clients table (for accounting firm's customers)
@@ -23,6 +23,7 @@ CREATE TABLE tax_invoices (
     -- Extracted OCR Data
     vendor_name VARCHAR(255),
     tax_id VARCHAR(50),      -- Vendor's Tax ID
+    branch VARCHAR(100),     -- Branch info (e.g. '00000' or 'สำนักงานใหญ่')
     invoice_no VARCHAR(100),
     invoice_date DATE,
     

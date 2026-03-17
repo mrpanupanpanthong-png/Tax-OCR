@@ -46,16 +46,26 @@ export default function DashboardPage() {
   }
 
   // Split into tabs
-  const pendingInvoices = invoicesArray.filter(i => i.status === 'pending');
+  // "Pending" tab should show everything that isn't confirmed yet (queued, processing, pending review, failed)
+  const pendingInvoices = invoicesArray.filter(i => i.status !== 'confirmed');
   const verifiedInvoices = invoicesArray.filter(i => i.status === 'confirmed');
   const activeInvoices = activeTab === 'pending' ? pendingInvoices : verifiedInvoices;
 
-  const totalSalesAmount = verifiedInvoices
+  const salesSummary = verifiedInvoices
     .filter(i => i.type === 'sale')
-    .reduce((sum, inv) => sum + (inv.net_amount || 0), 0);
-  const totalPurchaseAmount = verifiedInvoices
+    .reduce((acc, inv) => ({
+      net: acc.net + (inv.net_amount || 0),
+      vat: acc.vat + (inv.vat_amount || 0),
+      total: acc.total + (inv.total_amount || 0)
+    }), { net: 0, vat: 0, total: 0 });
+
+  const purchaseSummary = verifiedInvoices
     .filter(i => i.type === 'purchase')
-    .reduce((sum, inv) => sum + (inv.net_amount || 0), 0);
+    .reduce((acc, inv) => ({
+      net: acc.net + (inv.net_amount || 0),
+      vat: acc.vat + (inv.vat_amount || 0),
+      total: acc.total + (inv.total_amount || 0)
+    }), { net: 0, vat: 0, total: 0 });
 
 
   return (
@@ -156,8 +166,11 @@ export default function DashboardPage() {
                 <div className="p-2 bg-blue-50 rounded-lg"><DollarSign className="h-4 w-4 text-blue-600" /></div>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-slate-900">฿{totalSalesAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
-                <p className="text-xs text-slate-400 mt-2">{filterType === 'sale' ? "Filtering by Sales" : "Verified only"}</p>
+                <div className="text-2xl font-bold text-slate-900">฿{salesSummary.total.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                <div className="flex gap-4 mt-2 border-t border-slate-50 pt-2 text-[10px] font-bold uppercase tracking-tight">
+                   <div className="text-slate-400">Net: <span className="text-slate-600">฿{salesSummary.net.toLocaleString()}</span></div>
+                   <div className="text-slate-400">VAT: <span className="text-blue-600">฿{salesSummary.vat.toLocaleString()}</span></div>
+                </div>
               </CardContent>
             </Card>
 
@@ -170,8 +183,11 @@ export default function DashboardPage() {
                 <div className="p-2 bg-emerald-50 rounded-lg"><DollarSign className="h-4 w-4 text-emerald-600" /></div>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-slate-900">฿{totalPurchaseAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
-                <p className="text-xs text-slate-400 mt-2">{filterType === 'purchase' ? "Filtering by Purchases" : "Verified only"}</p>
+                <div className="text-2xl font-bold text-slate-900">฿{purchaseSummary.total.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                <div className="flex gap-4 mt-2 border-t border-slate-50 pt-2 text-[10px] font-bold uppercase tracking-tight">
+                   <div className="text-slate-400">Net: <span className="text-slate-600">฿{purchaseSummary.net.toLocaleString()}</span></div>
+                   <div className="text-slate-400">VAT: <span className="text-emerald-600">฿{purchaseSummary.vat.toLocaleString()}</span></div>
+                </div>
               </CardContent>
             </Card>
           </div>

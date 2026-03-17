@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarIcon, Search, Loader2 } from "lucide-react";
+import { CalendarIcon, Search, Loader2, Clock, AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 interface DataTableProps {
@@ -73,6 +73,7 @@ export function DataTable({
             <TableRow className="hover:bg-transparent border-slate-200">
               <TableHead className="w-[150px] font-bold text-slate-500">INVOICE NO.</TableHead>
               <TableHead className="font-bold text-slate-500">TYPE</TableHead>
+              <TableHead className="font-bold text-slate-500">BRANCH</TableHead>
               <TableHead className="font-bold text-slate-500">DATE</TableHead>
               <TableHead className="font-bold text-slate-500">VENDOR</TableHead>
               <TableHead className="text-right font-bold text-slate-500">NET AMOUNT</TableHead>
@@ -97,7 +98,8 @@ export function DataTable({
               </TableRow>
             ) : (
               invoices.map((inv) => {
-                const isProcessing = inv.status === 'pending' && !inv.vendor_name && !inv.raw_data?.error;
+                const isProcessing = inv.status === 'processing';
+                const isQueued = inv.status === 'queued';
                 const hasError = !!inv.raw_data?.error;
                 
                 return (
@@ -105,13 +107,13 @@ export function DataTable({
                     key={inv.id} 
                     className={cn(
                       "cursor-pointer hover:bg-slate-50 transition-colors border-slate-100",
-                      isProcessing && "opacity-70 cursor-wait bg-slate-50/10",
+                      (isProcessing || isQueued) && "opacity-70 cursor-wait bg-slate-50/10",
                       hasError && "bg-red-50/50 hover:bg-red-50"
                     )}
-                    onClick={() => !isProcessing && onSelectInvoice(inv)}
+                    onClick={() => (!isProcessing && !isQueued) && onSelectInvoice(inv)}
                   >
                     <TableCell className="font-bold text-slate-900">
-                        {inv.invoice_no || (isProcessing ? "PRO-SYNC..." : hasError ? "ERROR" : "N/A")}
+                        {inv.invoice_no || (isProcessing ? "SYNC..." : isQueued ? "QUEUED..." : hasError ? "ERROR" : "N/A")}
                     </TableCell>
                     <TableCell>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
@@ -122,13 +124,16 @@ export function DataTable({
                         {hasError ? 'Failed' : inv.type === 'sale' ? 'Output' : inv.type === 'purchase' ? 'Input' : 'Unknown'}
                       </span>
                     </TableCell>
+                    <TableCell className="text-slate-600 font-medium">
+                        {inv.branch || (isProcessing ? "..." : "-")}
+                    </TableCell>
                     <TableCell className="text-slate-600">
-                        {inv.invoice_date || (isProcessing ? "WAITING..." : "-")}
+                        {inv.invoice_date || (isProcessing ? "WAITING..." : isQueued ? "WAITING..." : "-")}
                     </TableCell>
                     <TableCell className="max-w-[200px] truncate font-medium text-slate-700">
                         {hasError ? (
                           <span className="text-red-600 font-semibold">{inv.raw_data.error}</span>
-                        ) : inv.vendor_name || (isProcessing ? "ANALYZING BY AI..." : "N/A")}
+                        ) : inv.vendor_name || (isProcessing ? "ANALYZING BY AI..." : isQueued ? "WAITING FOR WORKER..." : "N/A")}
                     </TableCell>
                     <TableCell className="text-right font-mono text-slate-600">
                       {hasError ? '-' : (inv.net_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -159,6 +164,22 @@ export function DataTable({
                           <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
                           Processing
                         </Badge>
+                      ) : isQueued ? (
+                        <Badge className="bg-slate-100 text-slate-600 border-slate-200">
+                          <Clock className="w-3 h-3 mr-1.5" />
+                          In Queue
+                        </Badge>
+                      ) : hasError ? (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectInvoice(inv);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold rounded-full shadow-sm shadow-red-200 transition-all active:scale-95"
+                        >
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          Manual Fix
+                        </button>
                       ) : (
                         <Badge 
                           variant={inv.status === 'confirmed' ? "default" : "outline"}

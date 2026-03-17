@@ -3,7 +3,8 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // Initialize the client. Ensure GEMINI_API_KEY is defined in your environment variables.
 // In Next.js, use process.env.GEMINI_API_KEY
 // Initialize the client with default library settings.
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+// Force v1 as v1beta shows 'expired' error for some API keys/projects
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '', { apiVersion: 'v1' });
 
 /**
  * Extracts specific tax information from an invoice image/pdf using Gemini 2.5 Flash.
@@ -56,14 +57,16 @@ export async function extractInvoiceData(fileUrl, clientContext = {}) {
       - If the client ("${clientName}") is the BUYER (Recipient of the invoice), set "invoice_type" to "purchase" (Input Tax).
       - Look at the company names and Tax IDs on the document to make this determination.
 
-      RULES FOR BOUNDING BOXES (bounding_boxes):
-      - For key fields (vendor_name, tax_id, invoice_no, invoice_date, total_amount), provide normalized coordinates [ymin, xmin, ymax, xmax] where each value is between 0-1000.
+      RULES FOR BRANCH (branch):
+      - Extract the branch information (e.g., "00000", "0001").
+      - If it is "Head Office" or "00000", represent it as "สำนักงานใหญ่".
       
       Return JSON in this format as an ARRAY OF OBJECTS (even if there is only 1 invoice):
       [
         {
           "vendor_name": "string (the other party, not the client)",
           "tax_id": "string (the other party's tax ID)",
+          "branch": "string (e.g. 'สำนักงานใหญ่' or '00001')",
           "invoice_no": "string",
           "invoice_date": "YYYY-MM-DD",
           "total_amount": number,
@@ -74,16 +77,10 @@ export async function extractInvoiceData(fileUrl, clientContext = {}) {
           "field_confidence": {
             "vendor_name": number,
             "tax_id": number,
+            "branch": number,
             "invoice_no": number,
             "invoice_date": number,
             "total_amount": number
-          },
-          "bounding_boxes": {
-            "vendor_name": [ymin, xmin, ymax, xmax],
-            "tax_id": [ymin, xmin, ymax, xmax],
-            "invoice_no": [ymin, xmin, ymax, xmax],
-            "invoice_date": [ymin, xmin, ymax, xmax],
-            "total_amount": [ymin, xmin, ymax, xmax]
           }
         }
       ]
